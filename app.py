@@ -1,71 +1,133 @@
 import streamlit as st
 import pandas as pd
-import shap
-import xgboost as xgb
 import numpy as np
-import joblib
+import pickle
 
-# Load the trained model
-# model = xgb.XGBClassifier()
-model = joblib.load("model/xgb_model.pkl")  # Path to your model file
+# Load the pre-trained XGBoost model
+with open('model/credit_risk_xgb.pkl', 'rb') as f:
+    model = pickle.load(f)
 
-# Feature names
-feature_names = [
-    "dti", "installment", "fico_range_low", "loan_amnt", "annual_inc",
-    "int_rate", "fico_range_high", "emp_length", "delinq_2yrs", "grade"
+# Title of the web app
+st.title('Credit Risk Prediction')
+
+# Define the full set of features that the model expects
+expected_features = [
+    'last_fico_range_high', 'last_fico_range_low', 'recoveries', 'collection_recovery_fee',
+    'last_pymnt_amnt', 'grade', 'int_rate', 'out_prncp', 'out_prncp_inv', 'fico_range_low',
+    'fico_range_high', 'acc_open_past_24mths', 'dti', 'num_tl_op_past_12m', 'mort_acc',
+    'bc_open_to_buy', 'loan_amnt', 'funded_amnt', 'funded_amnt_inv', 'avg_cur_bal'
 ]
 
-# Streamlit app
-st.title("Credit Risk Prediction with SHAP Explanation")
-st.markdown("This app predicts credit risk based on input values and provides SHAP explanations.")
+# Option to input manually or upload CSV using radio buttons
+input_option = st.radio("Choose input method", ["Input manually", "Upload CSV"])
 
-# Input collection
-st.subheader("Enter Feature Values for Prediction")
-user_inputs = {}
-for feature in feature_names:
-    user_inputs[feature] = st.number_input(f"Enter value for {feature}:", value=0.0)
+def add_interaction_features(df):
+    # Create interaction term 'last_fico_range_high*last_fico_range_low'
+    df['last_fico_range_high*last_fico_range_low'] = df['last_fico_range_high'] * df['last_fico_range_low']
+    return df
 
-# Option to upload JSON file
-st.subheader("OR Upload a JSON File")
-uploaded_file = st.file_uploader("Upload a JSON file with feature values", type=["json"])
+if input_option == "Input manually":
+    st.write("Please enter the following details:")
 
-if uploaded_file:
-    user_inputs = pd.read_json(uploaded_file, typ='series').to_dict()
+    # Input form for user to enter the required features
+    last_fico_range_high = st.number_input('Last FICO Range High', value=600.0)
+    last_fico_range_low = st.number_input('Last FICO Range Low', value=600.0)
+    recoveries = st.number_input('Recoveries', value=0.0)
+    collection_recovery_fee = st.number_input('Collection Recovery Fee', value=0.0)
+    last_pymnt_amnt = st.number_input('Last Payment Amount', value=1500.0)
+    grade = st.selectbox('Grade', options=['A', 'B', 'C', 'D', 'E', 'F', 'G'], index=0)
+    int_rate = st.number_input('Interest Rate (%)', value=10.0)
+    out_prncp = st.number_input('Outstanding Principal', value=1000.0)
+    out_prncp_inv = st.number_input('Outstanding Principal (Investor)', value=1000.0)
+    fico_range_low = st.number_input('FICO Range Low', value=600.0)
+    fico_range_high = st.number_input('FICO Range High', value=600.0)
+    acc_open_past_24mths = st.number_input('Accounts Open Past 24 Months', value=5)
+    dti = st.number_input('Debt-to-Income Ratio', value=20.0)
+    num_tl_op_past_12m = st.number_input('Number of Trades Opened Past 12 Months', value=2)
+    mort_acc = st.number_input('Mortgage Accounts', value=1)
+    bc_open_to_buy = st.number_input('Bankcard Open to Buy', value=5000.0)
+    loan_amnt = st.number_input('Loan Amount', value=10000.0)
+    funded_amnt = st.number_input('Funded Amount', value=10000.0)
+    funded_amnt_inv = st.number_input('Funded Amount (Investor)', value=10000.0)
+    avg_cur_bal = st.number_input('Average Current Balance', value=2000.0)
 
-# Prediction button
-if st.button("Predict"):
-    # Convert user inputs to DataFrame
-    input_data = pd.DataFrame([user_inputs])
+    # Convert 'grade' to numerical format
+    grade_map = {'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 5, 'F': 6, 'G': 7}
+    grade_value = grade_map[grade]
 
-    # Prediction
-    prediction = model.predict(input_data)[0]
-    prediction_proba = model.predict_proba(input_data)[0]
+    # Create a DataFrame from the user input
+    user_input = pd.DataFrame({
+        'last_fico_range_high': [last_fico_range_high],
+        'last_fico_range_low': [last_fico_range_low],
+        'recoveries': [recoveries],
+        'collection_recovery_fee': [collection_recovery_fee],
+        'last_pymnt_amnt': [last_pymnt_amnt],
+        'grade': [grade_value],
+        'int_rate': [int_rate],
+        'out_prncp': [out_prncp],
+        'out_prncp_inv': [out_prncp_inv],
+        'fico_range_low': [fico_range_low],
+        'fico_range_high': [fico_range_high],
+        'acc_open_past_24mths': [acc_open_past_24mths],
+        'dti': [dti],
+        'num_tl_op_past_12m': [num_tl_op_past_12m],
+        'mort_acc': [mort_acc],
+        'bc_open_to_buy': [bc_open_to_buy],
+        'loan_amnt': [loan_amnt],
+        'funded_amnt': [funded_amnt],
+        'funded_amnt_inv': [funded_amnt_inv],
+        'avg_cur_bal': [avg_cur_bal],
+    })
 
-    # Display prediction results
-    st.subheader("Prediction Result")
-    if prediction == 1:
-        st.write("The model predicts that this case is **high risk**.")
-    else:
-        st.write("The model predicts that this case is **low risk**.")
-    
-    st.subheader("Prediction Probability")
-    st.write(f"Low Risk: {prediction_proba[0]:.2f}")
-    st.write(f"High Risk: {prediction_proba[1]:.2f}")
+    # Add interaction feature
+    user_input = add_interaction_features(user_input)
 
-    # SHAP Explanation
-    st.subheader("SHAP Explanation")
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(input_data)
+    # Ensure the input has the same features as the model expects
+    for feature in expected_features:
+        if feature not in user_input.columns:
+            user_input[feature] = 0  # Add missing feature with default value 0
 
-    # SHAP summary plot
-    st.write("Feature Impact (Bar Plot)")
-    shap.summary_plot(shap_values, input_data, feature_names=feature_names, show=False)
-    st.pyplot()  # Render SHAP plot
+    # Reorder columns to match the model's expected order
+    user_input = user_input[expected_features]
 
-    # SHAP waterfall plot for individual prediction
-    st.write("Detailed Explanation (Waterfall Plot)")
-    shap.waterfall_plot(
-        shap.Explanation(values=shap_values[0], base_values=explainer.expected_value, 
-                         data=input_data.iloc[0].values, feature_names=feature_names)
-    )
-    st.pyplot()
+    # Button to make the prediction
+    if st.button('Predict'):
+        # Make prediction using the model
+        prediction = model.predict(user_input)
+
+        # Display the prediction result
+        if prediction[0] > 0.5:
+            st.write("Prediction: High Risk of Credit Default")
+        else:
+            st.write("Prediction: Low Risk of Credit Default")
+
+else:
+    # Option to upload CSV file
+    uploaded_file = st.file_uploader("Upload your CSV", type=["csv"])
+
+    if uploaded_file is not None:
+        # Read the CSV file into a DataFrame
+        df = pd.read_csv(uploaded_file)
+
+        # Check the columns of the uploaded file
+        st.write("Uploaded Data:")
+        st.write(df)
+
+        # Ensure only the selected features are present
+        df = df[expected_features]
+
+        # Add interaction feature
+        df = add_interaction_features(df)
+
+        # Button to make prediction
+        if st.button('Predict'):
+            prediction = model.predict(df)
+
+            # Show predictions
+            prediction_results = ["High Risk" if p > 0.5 else "Low Risk" for p in prediction]
+
+            # Show prediction results
+            st.write("Prediction Results:")
+            st.write(pd.DataFrame({
+                'Prediction': prediction_results
+            }))
